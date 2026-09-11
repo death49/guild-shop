@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Guild DM Control Center</title>
+  <style>
+    :root { --primary: #2c3e50; --accent: #27ae60; --danger: #c0392b; --edit: #f39c12; --bg: #f4f7f6; }
+    body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 0; background: var(--bg); color: #333; }
+    header { background: var(--primary); color: white; padding: 1rem 2rem; display: flex; justify-content: space-between; align-items: center; }
+    nav button { background: transparent; border: 1px solid white; color: white; padding: 0.5rem 1rem; cursor: pointer; border-radius: 4px; margin-left: 0.5rem; }
+    nav button.active { background: white; color: var(--primary); font-weight: bold; }
+    
+    .container { max-width: 1200px; margin: 2rem auto; padding: 0 1rem; }
+    .card { background: white; border-radius: 8px; padding: 1.5rem; box-shadow: 0 2px 8px rgba(0,0,0,0.08); margin-bottom: 2rem; }
+    
+    table { width: 100%; border-collapse: collapse; margin-top: 1rem; }
+    th, td { text-align: left; padding: 10px; border-bottom: 1px solid #e0e0e0; }
+    th { background-color: #f8f9fa; }
+    
+    .form-group { margin-bottom: 1rem; }
+    label { display: block; font-weight: bold; margin-bottom: 0.3rem; }
+    input[type="text"], input[type="number"], textarea, select { width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-radius; box-sizing: border-box; }
+    
+    .btn { padding: 6px 12px; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; color: white; }
+    .btn-add { background: var(--accent); }
+    .btn-edit { background: var(--edit); }
+    .btn-danger { background: var(--danger); }
+    .btn-secondary { background: #7f8c8d; }
+    
+    .grid-2 { display: grid; grid-template-columns: 1fr 2fr; gap: 2rem; }
+    .status-pending { color: var(--edit); font-weight: bold; }
+    .status-approved { color: var(--accent); font-weight: bold; }
+    .status-denied { color: var(--danger); font-weight: bold; }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>Guild Management Console</h1>
+  <nav>
+    <button id="nav-catalog" class="active" onclick="switchTab('catalog')">Catalog Manager (items.json)</button>
+    <button id="nav-orders" onclick="switchTab('orders')">Order Manager (orders.json)</button>
+    <button onclick="window.location.href='/'">Go to Player Store</button>
+  </nav>
+</header>
+
+<div class="container">
+
+  <!-- TAB 1: CATALOG MANAGEMENT (items.json) -->
+  <div id="tab-catalog" class="grid-2">
+    <!-- Item Form -->
+    <div class="card">
+      <h2 id="form-title">Add New Item / Service</h2>
+      <form id="item-form" onsubmit="saveItem(event)">
+        <input type="hidden" id="item-id">
+        
+        <div class="form-group">
+          <label>Item / Course Name</label>
+          <input type="text" id="item-name" required placeholder="e.g. Mithral Armor">
+        </div>
+
+        <div class="form-group">
+          <label>Category</label>
+          <input type="text" id="item-category" placeholder="e.g. Armor, Spells, Special Disciplines">
+        </div>
+
+        <div class="form-group">
+          <label>Cost (gp)</label>
+          <input type="number" id="item-cost" min="0" step="0.1" required value="50">
+        </div>
+
+        <div class="form-group">
+          <label>Training / Crafting Time (Days)</label>
+          <input type="number" id="item-time" min="0" required value="0">
+          <small style="color: #666;">Set to 0 for instant acquisition.</small>
+        </div>
+
+        <div class="form-group">
+          <label>Description & Mechanical Benefit</label>
+          <textarea id="item-description" rows="3" required placeholder="Details, mechanics, or spell effects..."></textarea>
+        </div>
+
+        <button type="submit" class="btn btn-add" id="btn-save-item">Add Item to Catalog</button>
+        <button type="button" class="btn btn-secondary" id="btn-cancel-edit" style="display:none;" onclick="resetForm()">Cancel Edit</button>
+      </form>
+    </div>
+
+    <!-- Items Table -->
+    <div class="card">
+      <h2>Catalog Items (`items.json`)</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>Cost</th>
+            <th>Time</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody id="catalog-table-body"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- TAB 2: ORDERS MANAGEMENT (orders.json) -->
+  <div id="tab-orders" style="display: none;">
+    <div class="card">
+      <div style="display: flex; justify-content: space-between; align-items: center;">
+        <h2>Submitted Player Orders (`orders.json`)</h2>
+        <button class="btn btn-danger" onclick="clearAllOrders()">Clear All Orders</button>
+      </div>
+      <div id="orders-container"></div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+  let catalog = [];
+  let orders = [];
+
+  async function loadCatalog() {
+    const res = await fetch('/api/items');
+    catalog = await res.json();
+    renderCatalogTable();
+  }
+
+  function renderCatalogTable() {
+    const tbody = document.getElementById('catalog-table-body');
+    tbody.innerHTML = catalog.map(item => `
+      <tr>
+        <td>
+          <strong>${item.name}</strong><br>
+          <small style="color:#666;">${item.category || 'General'}</small>
+        </td>
+        <td>${item.cost} gp</td>
+        <td>${item.time} Days</td>
+        <td>
+          <button class="btn btn-edit" onclick="editItem('${item.id}')">Edit</button>
+          <button class="btn btn-danger" onclick="deleteItem('${item.id}')">Delete</button>
+        </td>
+      </tr>
+    `).join('');
+  }
+
+  async function saveItem(e) {
+    e.preventDefault();
+    const id = document.getElementById('item-id').value;
+    const name = document.getElementById('item-name').value;
+    const category = document.getElementById('item-category').value;
+    const cost = parseFloat(document.getElementById('item-cost').value);
+    const time = parseInt(document.getElementById('item-time').value);
+    const description = document.getElementById('item-description').value;
+
+    const payload = { name, category, cost, time, description };
+
+    if (id) {
+      // EDIT existing item
+      await fetch(`/api/items/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+    } else {
+      // ADD new item
+      await fetch('/api/items', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+    }
+
+    resetForm();
+    loadCatalog();
+  }
+
+  function editItem(id) {
+    const item = catalog.find(i => i.id === id);
+    if (!item) return;
+
+    document.getElementById('item-id').value = item.id;
+    document.getElementById('item-name').value = item.name;
+    document.getElementById('item-category').value = item.category || '';
+    document.getElementById('item-cost').value = item.cost;
+    document.getElementById('item-time').value = item.time;
+    document.getElementById('item-description').value = item.description;
+
+    document.getElementById('form-title').innerText = "Edit Item";
+    document.getElementById('btn-save-item').innerText = "Update Item";
+    document.getElementById('btn-save-item').className = "btn btn-edit";
+    document.getElementById('btn-cancel-edit').style.display = "inline-block";
+  }
+
+  function resetForm() {
+    document.getElementById('item-id').value = '';
+    document.getElementById('item-form').reset();
+    document.getElementById('form-title').innerText = "Add New Item / Service";
+    document.getElementById('btn-save-item').innerText = "Add Item to Catalog";
+    document.getElementById('btn-save-item').className = "btn btn-add";
+    document.getElementById('btn-cancel-edit').style.display = "none";
+  }
+
+  async function deleteItem(id) {
+    if (!confirm('Are you sure you want to remove this item from the catalog?')) return;
+    await fetch(`/api/items/${id}`, { method: 'DELETE' });
+    loadCatalog();
+  }
+
+  // --- ORDERS MANAGEMENT ---
+
+  async function loadOrders() {
+    const res = await fetch('/api/orders');
+    orders = await res.json();
+    renderOrders();
+  }
+
+  function renderOrders() {
+    const container = document.getElementById('orders-container');
+    if (orders.length === 0) {
+      container.innerHTML = '<p>No orders found.</p>';
+      return;
+    }
+
+    container.innerHTML = orders.slice().reverse().map(order => `
+      <div class="card" style="border-left: 5px solid var(--primary); margin-top: 1rem;">
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+          <h3>${order.playerName} <small style="color:#666;">(${new Date(order.timestamp).toLocaleString()})</small></h3>
+          <button class="btn btn-danger" onclick="deleteEntireOrder('${order.orderId}')">Delete Order</button>
+        </div>
+        <p><strong>Player Note:</strong> ${order.playerNote || '<em>None</em>'}</p>
+        
+        <table>
+          <thead>
+            <tr>
+              <th>Item / Service</th>
+              <th>Cost</th>
+              <th>Time</th>
+              <th>Status</th>
+              <th>Modify Item</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${order.items.map(item => `
+              <tr>
+                <td>${item.name} (x${item.qty})</td>
+                <td>${item.cost * item.qty} gp</td>
+                <td>${(item.time || 0) * item.qty} Days</td>
+                <td><span class="status-${item.status}">${item.status.toUpperCase()}</span></td>
+                <td>
+                  <button class="btn btn-add" style="padding:2px 6px;" onclick="updateItemStatus('${order.orderId}', '${item.id}', 'approved')">Approve</button>
+                  <button class="btn btn-edit" style="padding:2px 6px;" onclick="updateItemStatus('${order.orderId}', '${item.id}', 'denied')">Deny</button>
+                  <button class="btn btn-danger" style="padding:2px 6px;" onclick="removeItemFromOrder('${order.orderId}', '${item.id}')">Remove</button>
+                </td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      </div>
+    `).join('');
+  }
+
+  async function updateItemStatus(orderId, itemId, status) {
+    await fetch(`/api/orders/${orderId}/items/${itemId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status })
+    });
+    loadOrders();
+  }
+
+  async function removeItemFromOrder(orderId, itemId) {
+    if (!confirm('Remove this item from player order?')) return;
+    await fetch(`/api/orders/${orderId}/items/${itemId}`, { method: 'DELETE' });
+    loadOrders();
+  }
+
+  async function deleteEntireOrder(orderId) {
+    if (!confirm('Delete this entire player order?')) return;
+    await fetch(`/api/orders/${orderId}`, { method: 'DELETE' });
+    loadOrders();
+  }
+
+  async function clearAllOrders() {
+    if (!confirm('WIPE ALL ORDERS? This cannot be undone.')) return;
+    await fetch('/api/orders/all', { method: 'DELETE' });
+    loadOrders();
+  }
+
+  function switchTab(tab) {
+    if (tab === 'catalog') {
+      document.getElementById('tab-catalog').style.display = 'grid';
+      document.getElementById('tab-orders').style.display = 'none';
+      document.getElementById('nav-catalog').classList.add('active');
+      document.getElementById('nav-orders').classList.remove('active');
+    } else {
+      document.getElementById('tab-catalog').style.display = 'none';
+      document.getElementById('tab-orders').style.display = 'block';
+      document.getElementById('nav-catalog').classList.remove('active');
+      document.getElementById('nav-orders').classList.add('active');
+      loadOrders();
+    }
+  }
+
+  loadCatalog();
+</script>
+</body>
+</html>
