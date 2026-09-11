@@ -8,11 +8,14 @@ const PORT = process.env.PORT || 3000;
 app.use(express.json());
 app.use(express.static('public'));
 
-// 1. DATABASE CONNECTION
+// 1. DATABASE CONNECTION & SEEDING
 const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/guild_shop';
 
 mongoose.connect(MONGODB_URI)
-  .then(() => console.log('Connected to MongoDB Atlas'))
+  .then(async () => {
+    console.log('Connected to MongoDB Atlas');
+    await seedCatalog(); // Run seed function ONLY AFTER database connection is ready
+  })
   .catch(err => console.error('MongoDB connection error:', err));
 
 // 2. SCHEMAS & MODELS
@@ -43,17 +46,20 @@ const Order = mongoose.model('Order', OrderSchema);
 
 // Seed default items if catalog is empty
 async function seedCatalog() {
-  const count = await Item.countDocuments();
-  if (count === 0) {
-    await Item.insertMany([
-      { name: "Potion of Healing", category: "Consumables", description: "Restores 2d4 + 2 HP.", cost: 50, time: 0 },
-      { name: "Alert Conditioning", category: "Training", description: "Alert Feat: +5 Initiative.", cost: 300, time: 10 },
-      { name: "Spell Scroll (Fireball)", category: "Scrolls", description: "Single-use 3rd-level scroll.", cost: 500, time: 0 }
-    ]);
-    console.log("Database seeded with sample items.");
+  try {
+    const count = await Item.countDocuments();
+    if (count === 0) {
+      await Item.insertMany([
+        { name: "Potion of Healing", category: "Consumables", description: "Restores 2d4 + 2 HP.", cost: 50, time: 0 },
+        { name: "Alert Conditioning", category: "Training", description: "Alert Feat: +5 Initiative.", cost: 300, time: 10 },
+        { name: "Spell Scroll (Fireball)", category: "Scrolls", description: "Single-use 3rd-level scroll.", cost: 500, time: 0 }
+      ]);
+      console.log("Database seeded with sample items.");
+    }
+  } catch (err) {
+    console.error("Error seeding catalog:", err);
   }
 }
-seedCatalog();
 
 // ================= ITEMS ROUTES ================= //
 
@@ -178,7 +184,7 @@ app.delete('/api/orders/:orderId/items/:itemId', async (req, res) => {
 // DELETE entire order
 app.delete('/api/orders/:orderId', async (req, res) => {
   try {
-    await Order.findByIdAndDelete(req.params.id || req.params.orderId);
+    await Order.findByIdAndDelete(req.params.orderId);
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
