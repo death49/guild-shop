@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Adventurer's Guild Shop & Training Academy</title>
+  <style>
+    :root { --primary: #2c3e50; --accent: #27ae60; --danger: #c0392b; --bg: #f4f7f6; }
+    body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 0; background: var(--bg); color: #333; }
+    header { background: var(--primary); color: white; padding: 1rem 2rem; display: flex; justify-content: space-between; align-items: center; }
+    nav button { background: transparent; border: 1px solid white; color: white; padding: 0.5rem 1rem; cursor: pointer; border-radius: 4px; margin-left: 0.5rem; }
+    nav button.active { background: white; color: var(--primary); font-weight: bold; }
+    .container { max-width: 1200px; margin: 2rem auto; padding: 0 1rem; display: grid; grid-template-columns: 2fr 1fr; gap: 2rem; }
+    .dm-container { max-width: 1000px; margin: 2rem auto; padding: 0 1rem; }
+    .card { background: white; border-radius: 8px; padding: 1.5rem; box-shadow: 0 2px 8px rgba(0,0,0,0.08); margin-bottom: 1rem; }
+    .item-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 1rem; }
+    .item-card { border: 1px solid #e0e0e0; border-radius: 6px; padding: 1rem; background: #fff; display: flex; flex-direction: column; justify-content: space-between; }
+    .price-tag { font-weight: bold; color: #d35400; }
+    .time-tag { font-weight: bold; color: #2980b9; margin-left: 10px; }
+    button.btn-add { background: var(--primary); color: white; border: none; padding: 0.5rem; width: 100%; margin-top: 0.5rem; border-radius: 4px; cursor: pointer; }
+    .cart-summary { background: #eef9f1; border: 1px solid #c8e6c9; padding: 1rem; border-radius: 6px; margin-bottom: 1rem; }
+    .order-card { border-left: 5px solid var(--primary); }
+    .status-pending { color: #f39c12; font-weight: bold; }
+    .status-approved { color: var(--accent); font-weight: bold; }
+    .status-denied { color: var(--danger); font-weight: bold; }
+    .btn-approve { background: var(--accent); color: white; border: none; padding: 4px 8px; border-radius: 3px; cursor: pointer; }
+    .btn-deny { background: var(--danger); color: white; border: none; padding: 4px 8px; border-radius: 3px; cursor: pointer; }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>Guild Armory & Academy</h1>
+  <nav>
+    <button id="btn-player-view" class="active" onclick="switchView('player')">Player Shop</button>
+    <button id="btn-dm-view" onclick="switchView('dm')">DM Review Dashboard</button>
+  </nav>
+</header>
+
+<!-- PLAYER VIEW -->
+<div id="player-view" class="container">
+  <div>
+    <h2>Available Items & Services</h2>
+    <div id="catalog" class="item-grid"></div>
+  </div>
+
+  <div>
+    <div class="card">
+      <h2>Your Requisition</h2>
+      <div class="cart-summary">
+        <h3>Total Cost: <span id="total-cost" class="price-tag">0 gp</span></h3>
+        <h3>Total Training Time: <span id="total-time" class="time-tag">0 Days</span></h3>
+      </div>
+      
+      <div id="cart-list">
+        <p style="color:#777;">No items selected.</p>
+      </div>
+
+      <hr style="margin: 1.5rem 0;">
+
+      <label for="player-name"><strong>Character Name:</strong></label>
+      <input type="text" id="player-name" placeholder="e.g. Grok the Barbarian" style="width: 100%; padding: 8px; margin: 8px 0 16px 0; box-sizing: border-box;">
+
+      <label for="player-note"><strong>Notes for DM:</strong></label>
+      <textarea id="player-note" rows="3" placeholder="e.g. I will complete this training during downtime before the raid." style="width: 100%; padding: 8px; margin-top: 8px; box-sizing: border-box;"></textarea>
+
+      <button onclick="submitOrder()" class="btn-add" style="background: var(--accent); font-size: 1.1rem; margin-top: 1rem;">Submit Order to DM</button>
+    </div>
+  </div>
+</div>
+
+<!-- DM VIEW -->
+<div id="dm-view" class="dm-container" style="display: none;">
+  <h2>Pending & Past Player Orders</h2>
+  <div id="orders-list"></div>
+</div>
+
+<script>
+  let catalog = [];
+  let cart = [];
+
+  async function init() {
+    const res = await fetch('/api/items');
+    catalog = await res.json();
+    renderCatalog();
+  }
+
+  function renderCatalog() {
+    const catalogEl = document.getElementById('catalog');
+    catalogEl.innerHTML = catalog.map(item => `
+      <div class="item-card">
+        <div>
+          <h3>${item.name}</h3>
+          <p><small><em>${item.category || 'General'}</em></small></p>
+          <p>${item.description}</p>
+        </div>
+        <div>
+          <p>
+            <span class="price-tag">${item.cost} gp</span>
+            <span class="time-tag">${item.time === 0 ? 'Instant' : item.time + ' Days'}</span>
+          </p>
+          <button class="btn-add" onclick="addToCart('${item.id}')">Add to Order</button>
+        </div>
+      </div>
+    `).join('');
+  }
+
+  function addToCart(itemId) {
+    const item = catalog.find(i => i.id === itemId);
+    const existing = cart.find(c => c.id === itemId);
+    if (existing) {
+      existing.qty++;
+    } else {
+      cart.push({ ...item, qty: 1 });
+    }
+    renderCart();
+  }
+
+  function removeFromCart(itemId) {
+    cart = cart.filter(c => c.id !== itemId);
+    renderCart();
+  }
+
+  function renderCart() {
+    const cartEl = document.getElementById('cart-list');
+    let totalCost = 0;
+    let totalTime = 0;
+
+    if (cart.length === 0) {
+      cartEl.innerHTML = '<p style="color:#777;">No items selected.</p>';
+    } else {
+      cartEl.innerHTML = cart.map(item => {
+        totalCost += item.cost * item.qty;
+        totalTime += (item.time || 0) * item.qty;
+        return `
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+            <div>
+              <strong>${item.name}</strong> (x${item.qty})<br>
+              <small>${item.cost * item.qty} gp | ${item.time * item.qty} Days</small>
+            </div>
+            <button onclick="removeFromCart('${item.id}')" style="color:red; border:none; background:none; cursor:pointer;">✕</button>
+          </div>
+        `;
+      }).join('');
+    }
+
+    document.getElementById('total-cost').innerText = totalCost + ' gp';
+    document.getElementById('total-time').innerText = totalTime + ' Days';
+  }
+
+  async function submitOrder() {
+    const playerName = document.getElementById('player-name').value.trim();
+    const playerNote = document.getElementById('player-note').value.trim();
+
+    if (!playerName) return alert('Please enter your character name.');
+    if (cart.length === 0) return alert('Your cart is empty.');
+
+    const res = await fetch('/api/orders', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ playerName, playerNote, items: cart })
+    });
+
+    if (res.ok) {
+      alert('Order successfully submitted to the DM!');
+      cart = [];
+      document.getElementById('player-name').value = '';
+      document.getElementById('player-note').value = '';
+      renderCart();
+    }
+  }
+
+  async function loadDMOrders() {
+    const res = await fetch('/api/orders');
+    const orders = await res.json();
+    const list = document.getElementById('orders-list');
+
+    if (orders.length === 0) {
+      list.innerHTML = '<p>No orders submitted yet.</p>';
+      return;
+    }
+
+    list.innerHTML = orders.reverse().map(order => {
+      let approvedCost = 0;
+      let approvedDays = 0;
+
+      const itemRows = order.items.map(item => {
+        if (item.status === 'approved') {
+          approvedCost += item.cost * item.qty;
+          approvedDays += (item.time || 0) * item.qty;
+        }
+        return `
+          <tr style="border-bottom: 1px solid #eee;">
+            <td style="padding: 8px;">${item.name} (x${item.qty})</td>
+            <td style="padding: 8px;">${item.cost * item.qty} gp</td>
+            <td style="padding: 8px;">${(item.time || 0) * item.qty} Days</td>
+            <td style="padding: 8px;"><span class="status-${item.status}">${item.status.toUpperCase()}</span></td>
+            <td style="padding: 8px;">
+              <button class="btn-approve" onclick="updateItemStatus('${order.orderId}', '${item.id}', 'approved')">Approve</button>
+              <button class="btn-deny" onclick="updateItemStatus('${order.orderId}', '${item.id}', 'denied')">Deny</button>
+            </td>
+          </tr>
+        `;
+      }).join('');
+
+      return `
+        <div class="card order-card">
+          <h3>${order.playerName} <small style="color:#666;">(${new Date(order.timestamp).toLocaleString()})</small></h3>
+          <p><strong>Note:</strong> ${order.playerNote || '<em>No notes provided</em>'}</p>
+          <table style="width: 100%; text-align: left; border-collapse: collapse;">
+            <thead>
+              <tr style="background:#f0f0f0;">
+                <th style="padding:8px;">Item / Service</th>
+                <th style="padding:8px;">Cost</th>
+                <th style="padding:8px;">Time</th>
+                <th style="padding:8px;">Status</th>
+                <th style="padding:8px;">Action</th>
+              </tr>
+            </thead>
+            <tbody>${itemRows}</tbody>
+          </table>
+          <p style="margin-top: 1rem;">
+            <strong>Approved Total:</strong> <span class="price-tag">${approvedCost} gp</span> | 
+            <span class="time-tag">${approvedDays} Days</span>
+          </p>
+        </div>
+      `;
+    }).join('');
+  }
+
+  async function updateItemStatus(orderId, itemId, status) {
+    await fetch(`/api/orders/${orderId}/items/${itemId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status })
+    });
+    loadDMOrders();
+  }
+
+  function switchView(view) {
+    if (view === 'player') {
+      document.getElementById('player-view').style.display = 'grid';
+      document.getElementById('dm-view').style.display = 'none';
+      document.getElementById('btn-player-view').classList.add('active');
+      document.getElementById('btn-dm-view').classList.remove('active');
+    } else {
+      document.getElementById('player-view').style.display = 'none';
+      document.getElementById('dm-view').style.display = 'block';
+      document.getElementById('btn-player-view').classList.remove('active');
+      document.getElementById('btn-dm-view').classList.add('active');
+      loadDMOrders();
+    }
+  }
+
+  init();
+</script>
+</body>
+</html>

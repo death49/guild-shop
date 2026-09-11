@@ -1,0 +1,42 @@
+[
+  {
+    "id": "item-1",
+    "name": "Potion of Healing",
+    "category": "Magic Items",
+    "description": "Restores 2d4 + 2 Hit Points when consumed.",
+    "cost": 50,
+    "time": 0
+  },
+  {
+    "id": "item-2",
+    "name": "Alert Conditioning",
+    "category": "Special Disciplines",
+    "description": "Alert Feat: +5 Initiative, cannot be surprised while conscious, unseen foes get no advantage.",
+    "cost": 300,
+    "time": 10
+  },
+  {
+    "id": "item-3",
+    "name": "Close-Quarters Brawling",
+    "category": "Special Disciplines",
+    "description": "Improvised weapon proficiency; 1d6 unarmed strike; bonus action grapple/strike on hit.",
+    "cost": 300,
+    "time": 7
+  },
+  {
+    "id": "item-4",
+    "name": "Spell Scroll (Fireball)",
+    "category": "Scrolls & Arcana",
+    "description": "Single-use 3rd level scroll. 20-ft radius sphere dealing 8d6 fire damage.",
+    "cost": 500,
+    "time": 0
+  },
+  {
+    "id": "item-5",
+    "name": "Common Sign Language",
+    "category": "Languages",
+    "description": "Tactical hand signs for covert field communication without sound.",
+    "cost": 100,
+    "time": 10
+  }
+]

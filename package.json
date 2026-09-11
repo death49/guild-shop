@@ -1,0 +1,12 @@
+{
+  "name": "guild-shop",
+  "version": "1.0.0",
+  "description": "Adventurer's Guild Shop and Training Academy",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2"
+  }
+}
