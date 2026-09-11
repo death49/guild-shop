@@ -1,161 +1,198 @@
 const express = require('express');
-const fs = require('fs');
+const mongoose = require('mongoose');
 const path = require('path');
+
 const app = express();
 const PORT = process.env.PORT || 3000;
 
 app.use(express.json());
 app.use(express.static('public'));
 
-const ITEMS_FILE = path.join(__dirname, 'items.json');
-const ORDERS_FILE = path.join(__dirname, 'orders.json');
+// 1. DATABASE CONNECTION
+const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/guild_shop';
 
-// Helper to ensure JSON files exist
-function ensureFile(filePath, defaultData = []) {
-  if (!fs.existsSync(filePath)) {
-    fs.writeFileSync(filePath, JSON.stringify(defaultData, null, 2));
+mongoose.connect(MONGODB_URI)
+  .then(() => console.log('Connected to MongoDB Atlas'))
+  .catch(err => console.error('MongoDB connection error:', err));
+
+// 2. SCHEMAS & MODELS
+const ItemSchema = new mongoose.Schema({
+  name: { type: String, required: true },
+  category: { type: String, default: 'General' },
+  description: { type: String, required: true },
+  cost: { type: Number, required: true },
+  time: { type: Number, default: 0 }
+});
+
+const OrderSchema = new mongoose.Schema({
+  playerName: { type: String, required: true },
+  playerNote: { type: String, default: '' },
+  timestamp: { type: Date, default: Date.now },
+  items: [{
+    id: String,
+    name: String,
+    cost: Number,
+    time: Number,
+    qty: Number,
+    status: { type: String, default: 'pending' }
+  }]
+});
+
+const Item = mongoose.model('Item', ItemSchema);
+const Order = mongoose.model('Order', OrderSchema);
+
+// Seed default items if catalog is empty
+async function seedCatalog() {
+  const count = await Item.countDocuments();
+  if (count === 0) {
+    await Item.insertMany([
+      { name: "Potion of Healing", category: "Consumables", description: "Restores 2d4 + 2 HP.", cost: 50, time: 0 },
+      { name: "Alert Conditioning", category: "Training", description: "Alert Feat: +5 Initiative.", cost: 300, time: 10 },
+      { name: "Spell Scroll (Fireball)", category: "Scrolls", description: "Single-use 3rd-level scroll.", cost: 500, time: 0 }
+    ]);
+    console.log("Database seeded with sample items.");
   }
 }
-ensureFile(ITEMS_FILE, []);
-ensureFile(ORDERS_FILE, []);
+seedCatalog();
 
-// ================= ITEMS.JSON ROUTES (CRUD) ================= //
+// ================= ITEMS ROUTES ================= //
 
-// GET all catalog items
-app.get('/api/items', (req, res) => {
-  fs.readFile(ITEMS_FILE, 'utf8', (err, data) => {
-    res.json(JSON.parse(data || '[]'));
-  });
+// GET all items
+app.get('/api/items', async (req, res) => {
+  try {
+    const items = await Item.find();
+    // Map _id to id for frontend compatibility
+    const formatted = items.map(i => ({ id: i._id, name: i.name, category: i.category, description: i.description, cost: i.cost, time: i.time }));
+    res.json(formatted);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
-// ADD a new item to items.json
-app.post('/api/items', (req, res) => {
-  const { name, category, description, cost, time } = req.body;
-  fs.readFile(ITEMS_FILE, 'utf8', (err, data) => {
-    const items = JSON.parse(data || '[]');
-    const newItem = {
-      id: 'item-' + Date.now(),
-      name,
-      category: category || 'General',
-      description,
-      cost: Number(cost) || 0,
-      time: Number(time) || 0
-    };
-    items.push(newItem);
-    fs.writeFileSync(ITEMS_FILE, JSON.stringify(items, null, 2));
-    res.json({ success: true, item: newItem });
-  });
+// ADD new item
+app.post('/api/items', async (req, res) => {
+  try {
+    const { name, category, description, cost, time } = req.body;
+    const newItem = new Item({ name, category, description, cost: Number(cost), time: Number(time) });
+    await newItem.save();
+    res.json({ success: true, item: { id: newItem._id, ...newItem._doc } });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
-// EDIT an existing item in items.json
-app.put('/api/items/:id', (req, res) => {
-  const { id } = req.params;
-  const { name, category, description, cost, time } = req.body;
-  fs.readFile(ITEMS_FILE, 'utf8', (err, data) => {
-    let items = JSON.parse(data || '[]');
-    let idx = items.findIndex(i => i.id === id);
-    if (idx === -1) return res.status(404).json({ error: 'Item not found' });
-
-    items[idx] = {
-      ...items[idx],
-      name,
-      category: category || 'General',
-      description,
-      cost: Number(cost),
-      time: Number(time)
-    };
-    fs.writeFileSync(ITEMS_FILE, JSON.stringify(items, null, 2));
-    res.json({ success: true, item: items[idx] });
-  });
+// EDIT existing item
+app.put('/api/items/:id', async (req, res) => {
+  try {
+    const { name, category, description, cost, time } = req.body;
+    const updated = await Item.findByIdAndUpdate(
+      req.params.id,
+      { name, category, description, cost: Number(cost), time: Number(time) },
+      { new: true }
+    );
+    res.json({ success: true, item: updated });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
-// DELETE an item from items.json
-app.delete('/api/items/:id', (req, res) => {
-  const { id } = req.params;
-  fs.readFile(ITEMS_FILE, 'utf8', (err, data) => {
-    let items = JSON.parse(data || '[]');
-    items = items.filter(i => i.id !== id);
-    fs.writeFileSync(ITEMS_FILE, JSON.stringify(items, null, 2));
+// DELETE item
+app.delete('/api/items/:id', async (req, res) => {
+  try {
+    await Item.findByIdAndDelete(req.params.id);
     res.json({ success: true });
-  });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
-// ================= ORDERS.JSON ROUTES (CRUD) ================= //
+// ================= ORDERS ROUTES ================= //
 
 // GET all orders
-app.get('/api/orders', (req, res) => {
-  fs.readFile(ORDERS_FILE, 'utf8', (err, data) => {
-    res.json(JSON.parse(data || '[]'));
-  });
+app.get('/api/orders', async (req, res) => {
+  try {
+    const orders = await Order.find();
+    const formatted = orders.map(o => ({
+      orderId: o._id,
+      playerName: o.playerName,
+      playerNote: o.playerNote,
+      timestamp: o.timestamp,
+      items: o.items
+    }));
+    res.json(formatted);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
-// CREATE order (Player submission)
-app.post('/api/orders', (req, res) => {
-  const { playerName, playerNote, items } = req.body;
-  const newOrder = {
-    orderId: 'ORD-' + Date.now(),
-    playerName,
-    playerNote: playerNote || '',
-    timestamp: new Date().toISOString(),
-    items: items.map(item => ({ ...item, status: 'pending' }))
-  };
-
-  fs.readFile(ORDERS_FILE, 'utf8', (err, data) => {
-    const orders = JSON.parse(data || '[]');
-    orders.push(newOrder);
-    fs.writeFileSync(ORDERS_FILE, JSON.stringify(orders, null, 2));
-    res.json({ success: true, orderId: newOrder.orderId });
-  });
+// CREATE order
+app.post('/api/orders', async (req, res) => {
+  try {
+    const { playerName, playerNote, items } = req.body;
+    const newOrder = new Order({
+      playerName,
+      playerNote,
+      items: items.map(i => ({ ...i, status: 'pending' }))
+    });
+    await newOrder.save();
+    res.json({ success: true, orderId: newOrder._id });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
-// UPDATE single item status (Approve/Deny)
-app.patch('/api/orders/:orderId/items/:itemId', (req, res) => {
-  const { orderId, itemId } = req.params;
-  const { status } = req.body;
+// UPDATE single item status in order
+app.patch('/api/orders/:orderId/items/:itemId', async (req, res) => {
+  try {
+    const { orderId, itemId } = req.params;
+    const { status } = req.body;
 
-  fs.readFile(ORDERS_FILE, 'utf8', (err, data) => {
-    let orders = JSON.parse(data || '[]');
-    let order = orders.find(o => o.orderId === orderId);
+    const order = await Order.findById(orderId);
     if (!order) return res.status(404).json({ error: 'Order not found' });
 
-    let item = order.items.find(i => i.id === itemId);
-    if (!item) return res.status(404).json({ error: 'Item not found in order' });
+    const item = order.items.find(i => i.id === itemId || i._id.toString() === itemId);
+    if (item) item.status = status;
 
-    item.status = status;
-    fs.writeFileSync(ORDERS_FILE, JSON.stringify(orders, null, 2));
+    await order.save();
     res.json({ success: true, order });
-  });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
-// REMOVE single item from an order
-app.delete('/api/orders/:orderId/items/:itemId', (req, res) => {
-  const { orderId, itemId } = req.params;
-  fs.readFile(ORDERS_FILE, 'utf8', (err, data) => {
-    let orders = JSON.parse(data || '[]');
-    let order = orders.find(o => o.orderId === orderId);
+// DELETE single item from order
+app.delete('/api/orders/:orderId/items/:itemId', async (req, res) => {
+  try {
+    const { orderId, itemId } = req.params;
+    const order = await Order.findById(orderId);
     if (!order) return res.status(404).json({ error: 'Order not found' });
 
-    order.items = order.items.filter(i => i.id !== itemId);
-    fs.writeFileSync(ORDERS_FILE, JSON.stringify(orders, null, 2));
+    order.items = order.items.filter(i => i.id !== itemId && i._id.toString() !== itemId);
+    await order.save();
     res.json({ success: true });
-  });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
-// DELETE an entire order
-app.delete('/api/orders/:orderId', (req, res) => {
-  const { orderId } = req.params;
-  fs.readFile(ORDERS_FILE, 'utf8', (err, data) => {
-    let orders = JSON.parse(data || '[]');
-    orders = orders.filter(o => o.orderId !== orderId);
-    fs.writeFileSync(ORDERS_FILE, JSON.stringify(orders, null, 2));
+// DELETE entire order
+app.delete('/api/orders/:orderId', async (req, res) => {
+  try {
+    await Order.findByIdAndDelete(req.params.id || req.params.orderId);
     res.json({ success: true });
-  });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
-// DELETE ALL orders
-app.delete('/api/orders/all', (req, res) => {
-  fs.writeFileSync(ORDERS_FILE, JSON.stringify([], null, 2));
-  res.json({ success: true });
+// DELETE all orders
+app.delete('/api/orders/all', async (req, res) => {
+  try {
+    await Order.deleteMany({});
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
-app.listen(PORT, () => console.log(`Guild Shop Manager active on http://localhost:${PORT}`));
+app.listen(PORT, () => console.log(`Server listening on port ${PORT}`));
